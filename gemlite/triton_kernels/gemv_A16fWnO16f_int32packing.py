@@ -4,6 +4,10 @@ import torch, math
 import triton
 import triton.language as tl
 
+import os
+os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/data/.cache/triton_dejavu"
+import triton_dejavu
+
 def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
 
@@ -51,7 +55,7 @@ def get_gemv_config():
 
     return _configs
 
-@triton.autotune(
+@triton_dejavu.autotune(
     configs = get_gemv_config(),
     key=['M', 'N', 'K', 'group_size', 'W_nbits'],
     prune_configs_by={
