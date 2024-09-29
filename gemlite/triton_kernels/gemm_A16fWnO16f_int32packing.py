@@ -4,6 +4,12 @@ import torch, math
 import triton
 import triton.language as tl
 
+import os
+os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/data/.cache/triton_dejavu"
+import triton_dejavu
+autotune = triton_dejavu.autotune
+
+
 # code based https://github.com/fpgaminer/GPTQ-triton
 def kernel_config_pruner(configs, nargs, **kwargs):
     m = max(2 ** int(math.ceil(math.log2(nargs['M']))), 16) #Need at least 16 here for tl.dot
@@ -37,7 +43,7 @@ def kernel_config_pruner(configs, nargs, **kwargs):
 def get_gemm_config():
     #Tuned on 4090 RTX
     _configs = []
-    for _M in [16, 32, 64, 128]: #might need higher values for larger batch-sizes
+    for _M in [16, 32, 64, 128, 256, 512]: #might need higher values for larger batch-sizes
         for _N in [32, 64, 128]: 
             for _K in [32, 64, 128]: #[32, 64, 128], 32 <= block_size
                 for _w in [2, 4]: 
@@ -50,7 +56,7 @@ def get_gemm_config():
     return _configs
 
 @triton.heuristics(values={'CLOSEST_M': lambda args: 2 ** int(math.ceil(math.log2(args['M'])))})
-@triton.autotune(
+@autotune(
     configs = get_gemm_config(),
     key=['CLOSEST_M', 'N', 'K', 'group_size', 'W_nbits'],
     prune_configs_by={
