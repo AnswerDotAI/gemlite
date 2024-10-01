@@ -5,10 +5,10 @@ import triton
 import triton.language as tl
 
 import os
-os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/data/.cache/triton_dejavu"
+os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/.cache/triton_dejavu"
 import triton_dejavu
 autotune = triton_dejavu.autotune
-
+autotune = triton.autotune
 
 # code based https://github.com/fpgaminer/GPTQ-triton
 def kernel_config_pruner(configs, nargs, **kwargs):
@@ -55,16 +55,19 @@ def get_gemm_config():
                                 )
     return _configs
 
-@triton.heuristics(values={'CLOSEST_M': lambda args: 2 ** int(math.ceil(math.log2(args['M'])))})
-@autotune(
-    configs = get_gemm_config(),
-    key=['CLOSEST_M', 'N', 'K', 'group_size', 'W_nbits'],
-    prune_configs_by={
-        'early_config_prune': kernel_config_pruner,
-    },
-    warmup=200, 
-    rep=50, #20 for faster tuning 
-)
+def dummy_config():
+    return [triton.Config({'BLOCK_SIZE_M': 512, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8}, num_stages=2, num_warps=2)]
+
+# @triton.heuristics(values={'CLOSEST_M': lambda args: 2 ** int(math.ceil(math.log2(args['M'])))})
+# @autotune(
+#     configs = get_gemm_config(),
+#     key=['CLOSEST_M', 'N', 'K', 'group_size', 'W_nbits'],
+#     prune_configs_by={
+#         'early_config_prune': kernel_config_pruner,
+#     },
+#     warmup=200, 
+#     rep=50, #20 for faster tuning 
+# )
 
 @triton.jit
 def gemm_A16fWnO16f_int32packing_kernel(
@@ -150,17 +153,124 @@ def gemm_A16fWnO16f_int32packing_kernel(
 
     tl.store(c_ptrs, acc, mask=(offs_am[:, None] < M) & (offs_bn[None, :] < N))
 
+# Llama-70B tp=2
+OPT_CONFIGS = {
+    (4096, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (4096, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (4096, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4096, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (4096, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4096, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (4, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (4, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (2, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (1, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (1, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1024, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1024, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (1024, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (1024, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (1024, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (1024, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (2048, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2048, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (2048, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2048, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2048, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (2048, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (8, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (8, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (8, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (8, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (8, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (8, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (16, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (16, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (16, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (16, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (16, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (16, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (32, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (32, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (32, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (32, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 16, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (32, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (32, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (64, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (64, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (64, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (64, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (64, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (64, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (128, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (128, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (128, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (128, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 128, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (128, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (128, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 32, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (256, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (256, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (256, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (256, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (256, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (256, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (512, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (512, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (512, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (512, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=2, maxnreg=None)],
+    (512, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)],
+    (512, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8}, num_warps=4, num_ctas=1, num_stages=4, maxnreg=None)]
+}
 
 def gemm_A16fWnO16f_int32packing_forward(x, W_q, scales, zeros, W_nbits, group_size, unpack_mask, elements_per_sample, acc_dtype=tl.float16):
     output = torch.empty((x.shape[0], W_q.shape[1]), device=W_q.device, dtype=scales.dtype)
 
     #assert x.shape[1] == W_q.shape[0] * elements_per_sample, "Invalid Input Shapes"
 
+    M, K, N = x.shape[0], x.shape[1], W_q.shape[1]
     grid = lambda META: (
         triton.cdiv(x.shape[0], META['BLOCK_SIZE_M']) * triton.cdiv(W_q.shape[1], META['BLOCK_SIZE_N']),
     )
-
-    gemm_A16fWnO16f_int32packing_kernel[grid](
+    
+    CLOSEST_M = 2 ** int(math.ceil(math.log2(M)))
+    config = OPT_CONFIGS.get((CLOSEST_M, N, K, group_size, W_nbits), None)
+    if config is None:
+        autotune_fn = triton_dejavu.autotune(
+            configs=get_gemm_config(),
+            key=['CLOSEST_M', 'N', 'K', 'group_size', 'W_nbits'],
+            warmup=200,
+            rep=100,
+            prune_configs_by={
+                'early_config_prune': kernel_config_pruner,
+            },
+        )
+    else:
+        autotune_fn = triton.autotune(
+            configs=config,
+            key=['CLOSEST_M', 'N', 'K', 'group_size', 'W_nbits'],
+            warmup=200,
+            rep=100,
+            prune_configs_by={
+                'early_config_prune': kernel_config_pruner,
+            },
+        )
+    
+    heuristic_fn = triton.heuristics(values={'CLOSEST_M': lambda args: 2 ** int(math.ceil(math.log2(args['M'])))})
+    kernel = heuristic_fn(autotune_fn(gemm_A16fWnO16f_int32packing_kernel))
+    kernel[grid](
         x, W_q, output,
         scales, zeros, 
         x.shape[0], W_q.shape[1], x.shape[1], 

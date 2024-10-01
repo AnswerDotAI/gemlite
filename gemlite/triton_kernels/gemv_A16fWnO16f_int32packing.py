@@ -5,9 +5,10 @@ import triton
 import triton.language as tl
 
 import os
-os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/data/.cache/triton_dejavu"
+os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/.cache/triton_dejavu"
 import triton_dejavu
 autotune = triton_dejavu.autotune
+autotune = triton.autotune
 
 def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
@@ -56,15 +57,18 @@ def get_gemv_config():
 
     return _configs
 
-@autotune(
-    configs = get_gemv_config(),
-    key=['M', 'N', 'K', 'group_size', 'W_nbits'],
-    prune_configs_by={
-        'early_config_prune': kernel_config_pruner,
-    },
-    warmup=200,
-    rep=100, #20 faster tuning 
-)
+def dummy_config():
+    return [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
+
+# @autotune(
+#     configs = get_gemv_config(),
+#     key=['M', 'N', 'K', 'group_size', 'W_nbits'],
+#     prune_configs_by={
+#         'early_config_prune': kernel_config_pruner,
+#     },
+#     warmup=200,
+#     rep=100, #20 faster tuning 
+# )
 
 @triton.jit
 def gemv_A16fWnO16f_int32packing_kernel(
@@ -117,6 +121,81 @@ def gemv_A16fWnO16f_int32packing_kernel(
     #Output: tl.atomic_add only supports 1D fp16 arrays, bfp16 would crash 
     tl.atomic_add(c_ptr + offs_bn + pid_m*N, acc, sem="relaxed", scope="cta") #Force cta scope
 
+# Llama-70B tp=2
+OPT_CONFIGS = {
+    (4, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                        num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (4, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (4, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (4, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (4, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (4, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (2, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (1, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (8, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (3, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 5120, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 8192, 4096, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 28672, 8192, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=2, num_ctas=1, num_stages=1, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 8192, 14336, 128, 4): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                          num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 28672, 8192, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=2, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))],
+    (5, 8192, 14336, 32, 2): [triton.Config({"BLOCK_SIZE_M": 1, "BLOCK_SIZE_N": 256, "BLOCK_SIZE_K": 32}, 
+                                         num_warps=4, num_ctas=1, num_stages=2, maxnreg=None, pre_hook=init_to_zero("c_ptr"))]
+}
 
 def gemv_A16fWnO16f_int32packing_forward(x, W_q, scales, zeros, W_nbits, group_size, unpack_mask, elements_per_sample, acc_dtype=tl.float16):
     #assert x.shape[1] == W_q.shape[0] * elements_per_sample, "Invalid Input Shapes"
@@ -125,7 +204,29 @@ def gemv_A16fWnO16f_int32packing_forward(x, W_q, scales, zeros, W_nbits, group_s
     output  = torch.empty((M, N), device=W_q.device, dtype=scales.dtype)
     grid    = lambda meta: (triton.cdiv(M, meta['BLOCK_SIZE_M']), triton.cdiv(K, meta['BLOCK_SIZE_K']), triton.cdiv(N, meta['BLOCK_SIZE_N']))
 
-    gemv_A16fWnO16f_int32packing_kernel[grid](
+    config = OPT_CONFIGS.get((M, N, K, group_size, W_nbits), None)
+    if config is None:
+        kernel = triton_dejavu.autotune(
+            configs=get_gemv_config(),
+            key=['M', 'N', 'K', 'group_size', 'W_nbits'],
+            warmup=200,
+            rep=100,
+            prune_configs_by={
+                'early_config_prune': kernel_config_pruner,
+            },
+        )(gemv_A16fWnO16f_int32packing_kernel)
+    else:
+        kernel = triton.autotune(
+            configs=config,
+            key=['M', 'N', 'K', 'group_size', 'W_nbits'],
+            warmup=200,
+            rep=100,
+            prune_configs_by={
+                'early_config_prune': kernel_config_pruner,
+            },
+        )(gemv_A16fWnO16f_int32packing_kernel)
+    
+    kernel[grid](
         x, W_q, output,
         scales, zeros, 
         M, N, K, 
