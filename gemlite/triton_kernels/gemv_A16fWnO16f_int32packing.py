@@ -4,14 +4,15 @@ import torch, math
 import triton
 import triton.language as tl
 
-import os
-os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/.cache/triton_dejavu"
 import triton_dejavu
 autotune = triton_dejavu.autotune
 autotune = triton.autotune
 
 def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
+
+def init_to_zero_autotuner(nargs, **kwargs):
+    return nargs[2].zero_()
 
 def kernel_config_pruner(configs, nargs, **kwargs):
     m = nargs['M'] # < 16
@@ -52,7 +53,7 @@ def get_gemv_config():
                         _configs.append(
                                 triton.Config(
                                     {'BLOCK_SIZE_M': _M, 'BLOCK_SIZE_N': _N, 'BLOCK_SIZE_K': _K}, 
-                                    num_stages=_s, num_warps=_w, pre_hook=init_to_zero("c_ptr"))
+                                    num_stages=_s, num_warps=_w)
                                 )
 
     return _configs
@@ -293,6 +294,7 @@ def gemv_A16fWnO16f_int32packing_forward(x, W_q, scales, zeros, W_nbits, group_s
             prune_configs_by={
                 'early_config_prune': kernel_config_pruner,
             },
+            pre_hook=init_to_zero_autotuner
         )(gemv_A16fWnO16f_int32packing_kernel)
     else:
         kernel = triton.autotune(

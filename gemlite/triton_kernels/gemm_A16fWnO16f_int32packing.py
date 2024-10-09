@@ -4,8 +4,6 @@ import torch, math
 import triton
 import triton.language as tl
 
-import os
-os.environ["TRITON_DEJAVU_STORAGE"] = "/workspace/.cache/triton_dejavu"
 import triton_dejavu
 autotune = triton_dejavu.autotune
 autotune = triton.autotune
