@@ -103,14 +103,14 @@ def get_default_config():
 
 ENABLE_AUTOTUNE = AUTOTUNE_ENABLE.GEMV_REVSPLITK
 
-@triton.autotune(
-    configs = get_autotune_config() if ENABLE_AUTOTUNE else get_default_config(),
-    key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
-    prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
-    warmup = 50, 
-    rep = 50,
-    use_cuda_graph = AUTOTUNE_ENABLE.USE_CUDA_GRAPH,
-)
+# @triton.autotune(
+#     configs = get_autotune_config() if ENABLE_AUTOTUNE else get_default_config(),
+#     key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
+#     prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
+#     warmup = 50, 
+#     rep = 50,
+#     use_cuda_graph = AUTOTUNE_ENABLE.USE_CUDA_GRAPH,
+# )
 
 @triton.jit
 def gemv_revsplitK_A16fWnO16f_int32packing_kernel(
@@ -231,6 +231,18 @@ def gemv_revsplitK_A16fWnO16f_int32packing_kernel(
 
 _costum_op_id = '_' + str(int(random.random()*10000))
 
+
+QWEN_2_5_32B_TP1 = {
+    (1, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=2, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
+    (1, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 27648, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 55296, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
+}
+
+OPT_CONFIGS = {**QWEN_2_5_32B_TP1}
+
 @torch.library.custom_op("gemlite::gemv_revsplitK_A16fWnO16f_int32packing_forward" + _costum_op_id, mutates_args=())
 def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
                                                    W_nbits: int, group_size: int, unpack_mask: int, elements_per_sample: int, 
@@ -246,7 +258,26 @@ def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scale
     
     grid = lambda meta: (triton.cdiv(M, meta['BLOCK_SIZE_M']) * triton.cdiv(N, meta['BLOCK_SIZE_N']), triton.cdiv(K, meta['BLOCK_SIZE_K'] * 2))
 
-    gemv_revsplitK_A16fWnO16f_int32packing_kernel[grid](
+    config = OPT_CONFIGS.get((M, N, K, group_size, elements_per_sample), None)
+    if config is None:
+        autotune_fn = triton.autotune(
+            configs = get_autotune_config() if ENABLE_AUTOTUNE else get_default_config(),
+            key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
+            prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
+            warmup = 50, 
+            rep = 50,
+            use_cuda_graph = AUTOTUNE_ENABLE.USE_CUDA_GRAPH)
+    else:
+        autotune_fn = triton.autotune(
+            configs = config,
+            key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
+            prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
+            warmup = 50, 
+            rep = 50,
+            use_cuda_graph = AUTOTUNE_ENABLE.USE_CUDA_GRAPH)
+
+    kernel = autotune_fn(gemv_revsplitK_A16fWnO16f_int32packing_kernel)
+    kernel[grid](
         x, W_q, output,
         scales, zeros, scales_x,
         M, N, K, 
