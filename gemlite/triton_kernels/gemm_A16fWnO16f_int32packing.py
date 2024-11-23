@@ -237,6 +237,18 @@ _costum_op_id = '_' + str(int(random.random()*10000))
 
 
 QWEN_2_5_32B_TP1 = {
+    (16384, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (16384, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 27648, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (16384, 55296, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 27648, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 55296, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
     (4096, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
     (4096, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
     (4096, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
@@ -281,7 +293,65 @@ QWEN_2_5_32B_TP1 = {
     (2048, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)]
 }
 
-OPT_CONFIGS = {**QWEN_2_5_32B_TP1}
+
+QWEN_2_5_32B_TP2 = {
+    (16384, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (16384, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (16384, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (16384, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (8192, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (8192, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (4096, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (4096, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (4096, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (4096, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (4096, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (4096, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (64, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (64, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (64, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (64, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (64, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (64, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (512, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (512, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (512, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (512, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (512, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (512, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (128, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (128, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (128, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (128, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (128, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (128, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (256, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (256, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (256, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (256, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (256, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (256, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (1024, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (1024, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (1024, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (1024, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (1024, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (1024, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (2048, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (2048, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (2048, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (2048, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)],
+    (2048, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=2, num_warps=4)],
+    (2048, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, 'A_load_order': 2, 'meta_evict_policy': ''}, num_stages=4, num_warps=4)]
+}
+
+OPT_CONFIGS = {**QWEN_2_5_32B_TP1, **QWEN_2_5_32B_TP2}
 
 @torch.library.custom_op("gemlite::gemm_A16fWnO16f_int32packing_forward" + _costum_op_id, mutates_args=())
 def gemm_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
@@ -299,7 +369,7 @@ def gemm_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor,
 
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
     
-    CLOSEST_M = 2 ** int(math.ceil(math.log2(M)))
+    CLOSEST_M = max(2 ** int(math.ceil(math.log2(M))), 16384)
     config = OPT_CONFIGS.get((CLOSEST_M, N, K, group_size, elements_per_sample), None)
     if config is None:
         autotune_fn = triton.autotune(

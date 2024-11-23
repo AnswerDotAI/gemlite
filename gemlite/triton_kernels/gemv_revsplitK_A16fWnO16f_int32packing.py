@@ -241,7 +241,16 @@ QWEN_2_5_32B_TP1 = {
     (1, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
 }
 
-OPT_CONFIGS = {**QWEN_2_5_32B_TP1}
+QWEN_2_5_32B_TP2 = {
+    (1, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=2, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
+    (1, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
+    (1, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
+}
+
+OPT_CONFIGS = {**QWEN_2_5_32B_TP1, **QWEN_2_5_32B_TP2}
 
 @torch.library.custom_op("gemlite::gemv_revsplitK_A16fWnO16f_int32packing_forward" + _costum_op_id, mutates_args=())
 def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
