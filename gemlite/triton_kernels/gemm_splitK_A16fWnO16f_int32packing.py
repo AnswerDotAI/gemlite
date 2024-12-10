@@ -1,6 +1,6 @@
 # Written by Dr. Hicham Badri @Mobius Labs GmbH - 2024
 #********************************************************
-import torch, math, random
+import torch, math, random, copy
 from torch import Tensor
 import triton
 import triton.language as tl
@@ -8,29 +8,72 @@ import triton.language as tl
 from .config import AUTOTUNE_ENABLE
 from .utils import *
 
+KEYS        = ['M', 'N', 'K', 'group_size', 'elements_per_sample']
+MATMUL_TYPE = "GEMM_SPLITK"
+
 def kernel_config_pruner(configs, nargs, **kwargs):
-    m = nargs['M'] 
+    global KEYS
+    from ..core import GEMLITE_TRITON_CONFIG_CACHE
+
+    m = 2 ** int(math.ceil(math.log2(nargs['M'])))
     n = nargs['N'] 
     k = nargs['K'] 
     g = nargs['group_size']
-    
+    e = nargs['elements_per_sample']
+
+    #Check cache
+    if(MATMUL_TYPE in GEMLITE_TRITON_CONFIG_CACHE):
+        _signature = str(tuple([m, n, k, g, e]))
+        if(_signature in GEMLITE_TRITON_CONFIG_CACHE[MATMUL_TYPE]):
+            _config     = copy.deepcopy(GEMLITE_TRITON_CONFIG_CACHE[MATMUL_TYPE][_signature])
+            _num_stages = _config.pop('num_stages')
+            _num_warps  = _config.pop('num_warps')
+            _num_ctas   = _config.pop('num_ctas')
+
+            yield triton.Config(_config,
+                num_stages=_num_stages,
+                num_warps=_num_warps,
+                pre_hook=init_to_zero("c_ptr") if (_config['SPLIT_K'] > 1) else None,
+            )
+
+            return
+
     used = set()
     for config in configs:
         group_size_m = config.kwargs['GROUP_SIZE_M']
-        block_size_m = config.kwargs['BLOCK_SIZE_M'] #min(m, config.kwargs['BLOCK_SIZE_M'])
-        block_size_n = config.kwargs['BLOCK_SIZE_N'] #min(n, config.kwargs['BLOCK_SIZE_N'])
-        block_size_k = config.kwargs['BLOCK_SIZE_K'] #min(k, config.kwargs['BLOCK_SIZE_K'])
+        block_size_m = config.kwargs['BLOCK_SIZE_M']
+        block_size_n = config.kwargs['BLOCK_SIZE_N']
+        block_size_k = config.kwargs['BLOCK_SIZE_K']
         split_k      = config.kwargs['SPLIT_K']
 
-        #Makes autotuning faster: mainly for batch-size 1 .. 32
-        block_size_m = 16 if (m <= 16) else 32
+        #Makes autotuning faster: mainly for batch-size 1 .. 64
+        if(m <= 16): block_size_m = 16
+        if(m >= 32): block_size_m = min(max(block_size_m, 16), 32) #[16, 32]
+        if(m >= 64): block_size_m = min(max(block_size_m, 32), 64) #[32, 64]
+
+        #Only use higher split_k values for smaller m
+        if(m >= 32): split_k = min(split_k, 8)
+        #Only use lower split_k values for larger m
+        if(m <= 16): split_k = max(split_k, 2)
+
+        #Filter 
+        block_area = block_size_k * block_size_n
+        if(block_area > 4096 * 8): #Limit area for faster autotuning. Use for more 4096 * 8
+            continue
 
         #Constraints
         #BLOCK_SIZE_K >= group_size
         block_size_k = min(block_size_k, g)
+
         #K needs to be devisible by BLOCK_SIZE_K * SPLIT_K 
         if(not is_divisible(k, block_size_k * split_k)):
             continue
+
+        num_warps  = config.num_warps
+        num_stages = config.num_stages
+
+        #if(e > 1): num_stages = 1 #TODO: Remove this after fix
+        if(e == 1 and num_stages == 1): continue #skip num_stages=1 for non-packed weights
 
         A_load_order      = config.kwargs['A_load_order']
         meta_evict_policy = config.kwargs['meta_evict_policy']
@@ -59,53 +102,52 @@ def kernel_config_pruner(configs, nargs, **kwargs):
             },
             num_stages=config.num_stages,
             num_warps=config.num_warps,
-            pre_hook=config.pre_hook,
+            pre_hook=init_to_zero("c_ptr") if (split_k > 1) else None, 
         )
 
-
-#These autotunes are optimized for batch-size 1 to 32 (!)
+#These autotunes are optimized for batch-size 1 to 64 (!)
 def get_autotune_config():
-    #Tuned on 4090 RTX
+    _stages  = [1, 2, 4, 5] if gpu_has_more_shared_memory() else [1, 2, 4]
     _configs = []
-    for _M in [16, 32]: #Use [16, 32] for better performance at batch-sizes 32,64
-        for _N in [32, 64]:
-            for _K in [32, 64, 128]: #[128], group_size >= 128
-                for _w in [2, 4]: #[4] 
-                    for _s in [1, 2]: #[1, 2, 3]
-                        for _sK in [2, 4, 8]: #[2, 4, 8]
-                            for _a_load_order in [2]: #[1, 2, 3] - using [2] for faster warm-up, for best results set to max
-                                for _meta_evict_policy in ['']: #[', 'evict_last'] - ['']: default 4090
+    for _M in [16, 32, 64]: #for better performance at batch-sizes [4-64]
+        for _N in [32, 64, 128, 256]:
+            for _K in [32, 64, 128, 256]:
+                for _w in [4, 8]:
+                    for _s in _stages:
+                        for _sK in [1, 2, 4, 8, 16]: 
+                            for _a_load_order in [0, 2]: #[0, 2], [0, 1, 2, 3] - [2] for 4090, [0]: for A100/H100
+                                for _meta_evict_policy in ['']: #[', 'evict_last']
                                     for _atomic_mode in ['relaxed']: #['release', 'relaxed']:
                                         _configs.append(
                                                 triton.Config(
-                                                    {'BLOCK_SIZE_M': _M, 'BLOCK_SIZE_N': _N, 'BLOCK_SIZE_K': _K, 
-                                                    'GROUP_SIZE_M': 8, 'SPLIT_K': _sK,
+                                                    {'BLOCK_SIZE_M': _M, 'BLOCK_SIZE_N': _N, 'BLOCK_SIZE_K': _K, 'GROUP_SIZE_M': 8, 'SPLIT_K': _sK,
                                                     'A_load_order': _a_load_order, 'meta_evict_policy': _meta_evict_policy, 'atomic_mode': _atomic_mode,
                                                     }, 
                                                     num_stages=_s, num_warps=_w,
-                                                    pre_hook=init_to_zero("c_ptr"),
+                                                    pre_hook=init_to_zero("c_ptr") if (_sK > 1) else None,
                                                     )
                                                 )
     return _configs
+
 
 compute_capability = torch.cuda.get_device_capability(0)
 
 #Optimized for low-batch size decoding: K needs to be divisible by BLOCK_SIZE_K * SPLIT_K = 256 !!!
 def get_default_config():
     #4090: default
-    config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':32, 'BLOCK_SIZE_K':32, 'SPLIT_K':8, 'GROUP_SIZE_M':8, 
+    config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':32, 'BLOCK_SIZE_K':32, 'SPLIT_K':2, 'GROUP_SIZE_M':8, 
                            'A_load_order':2, 'meta_evict_policy':'', 'atomic_mode':'relaxed'}, 
-                            num_warps=4, num_stages=3, pre_hook=init_to_zero("c_ptr"))
+                            num_warps=4, num_stages=1, pre_hook=init_to_zero("c_ptr"))
 
     if(compute_capability == (8, 0)): #A100
-        config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':32, 'BLOCK_SIZE_K':128, 'SPLIT_K':8, 'GROUP_SIZE_M':8, 
-                             'A_load_order':2, 'meta_evict_policy':'', 'atomic_mode':'relaxed'}, 
-                             num_warps=4, num_stages=2, pre_hook=init_to_zero("c_ptr"))
+        config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':64, 'BLOCK_SIZE_K':32, 'SPLIT_K':2, 'GROUP_SIZE_M':8, 
+                             'A_load_order':0, 'meta_evict_policy':'', 'atomic_mode':'relaxed'}, 
+                             num_warps=4, num_stages=1, pre_hook=init_to_zero("c_ptr"))
 
     if(compute_capability == (9, 0)): #H100
-        config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':32, 'BLOCK_SIZE_K':128, 'SPLIT_K':8, 'GROUP_SIZE_M':8, 
-                             'A_load_order':2, 'meta_evict_policy':'', 'atomic_mode':'relaxed'}, 
-                             num_warps=4, num_stages=2, pre_hook=init_to_zero("c_ptr"))
+        config = triton.Config({'BLOCK_SIZE_M':16, 'BLOCK_SIZE_N':64, 'BLOCK_SIZE_K':32, 'SPLIT_K':2, 'GROUP_SIZE_M':8, 
+                             'A_load_order':0, 'meta_evict_policy':'', 'atomic_mode':'relaxed'}, 
+                             num_warps=4, num_stages=1, pre_hook=init_to_zero("c_ptr"))
 
     return [config]
 
@@ -119,6 +161,7 @@ ENABLE_AUTOTUNE = AUTOTUNE_ENABLE.GEMM_SPLITK
 #     rep = 50,
 #     use_cuda_graph = AUTOTUNE_ENABLE.USE_CUDA_GRAPH,
 # )
+
 
 @triton.jit
 def gemm_splitK_A16fWnO16f_int32packing_kernel(
@@ -148,6 +191,7 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr, SPLIT_K: tl.constexpr,
     A_load_order: tl.constexpr, meta_evict_policy: tl.constexpr, atomic_mode: tl.constexpr,
+    data_contiguous: tl.constexpr,
 ):
     """
     Based on https://github.com/foundation-model-stack/foundation-model-stack/blob/triton/triton/kernels/gptq/splitk_dequant_gemm.py
@@ -179,27 +223,43 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
     offs_k = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K) 
 
     #Vectorized coalesced load
-    offs_am = tl.max_contiguous(tl.multiple_of(offs_m, BLOCK_SIZE_M), BLOCK_SIZE_M)
-    offs_bn = tl.max_contiguous(tl.multiple_of(offs_n, BLOCK_SIZE_N), BLOCK_SIZE_N)
+    ##############################
+    offs_am = offs_m
+    offs_ak = tl.max_contiguous(tl.multiple_of(offs_k, BLOCK_SIZE_K), BLOCK_SIZE_K)
+
+    if(data_contiguous):
+        offs_bn = tl.max_contiguous(tl.multiple_of(offs_n, BLOCK_SIZE_N), BLOCK_SIZE_N) 
+        offs_bk = offs_k
+    else:
+        offs_bn = offs_n
+        offs_bk = tl.max_contiguous(tl.multiple_of(offs_k, BLOCK_SIZE_K), BLOCK_SIZE_K)
+    ###############################
+
+    b_ptrs  = b_ptr + ((offs_bk[:, None] // elements_per_sample) * stride_bk + offs_bn[None, :] * stride_bn) 
+    q_shift = ((offs_bk % elements_per_sample) * W_nbits).to(tl.int32)[:, None] 
 
     #Inputs
-    a_ptrs  = a_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)  
+    a_ptrs  = a_ptr + (offs_am[:, None] * stride_am + offs_ak[None, :] * stride_ak)  
     a_mask  = offs_am[:, None] < M
-    b_ptrs  = b_ptr + ((offs_k[:, None] // elements_per_sample) * stride_bk + offs_bn[None, :] * stride_bn) 
-
+    
     #Meta data stuff
-    q_shift = ((offs_k % elements_per_sample) * W_nbits).to(tl.int32)[:, None]
-
     scales_ptrs = scales_ptr + offs_bn[None, :] * stride_meta_n
     zeros_ptrs  = zeros_ptr  + offs_bn[None, :] * stride_meta_n
 
     stride_mul: tl.constexpr     = BLOCK_SIZE_K / group_size
-    BLOCK_SIZE_K_P: tl.constexpr = BLOCK_SIZE_K // elements_per_sample
+    BLOCK_SIZE_K_U: tl.constexpr = BLOCK_SIZE_K   * SPLIT_K
+    BLOCK_SIZE_K_P: tl.constexpr = (BLOCK_SIZE_K // elements_per_sample) * SPLIT_K
+
+    if(zero_is_scalar):
+        zero_scalar = tl.load(zeros_ptr, eviction_policy='evict_last')
     ####################################################################################
     
     acc = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=acc_dtype)
 
-    for k in tl.range(0, num_pid_k, 1, num_stages=1):
+    for k in range(num_pid_k):
+
+        if(A_load_order == 0): #Early load
+            a = tl.load(a_ptrs, mask=a_mask, other=0., eviction_policy='evict_last') 
 
         b = tl.load(b_ptrs, eviction_policy='evict_first')
 
@@ -207,7 +267,8 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
             a = tl.load(a_ptrs, mask=a_mask, other=0., eviction_policy='evict_last') 
         
         #Meta-data loading policy
-        k_m = ((k * SPLIT_K + pid_k) * stride_mul).to(tl.int32) 
+        if(W_group_mode > 0):
+            k_m = ((k * SPLIT_K + pid_k) * stride_mul).to(tl.int32) 
 
         if(W_group_mode >= 2): #[2, 3, 4]
             scales = tl.load(scales_ptrs + k_m * stride_meta_g, eviction_policy=meta_evict_policy) 
@@ -216,7 +277,7 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
 
         if(W_group_mode == 1 or W_group_mode >= 3): #[1, 3, 4]
             if(zero_is_scalar):
-                zeros = zeros_ptr
+                zeros = zero_scalar
             else:
                 zeros = tl.load(zeros_ptrs  + k_m * stride_meta_g, eviction_policy=meta_evict_policy) 
         else:
@@ -227,16 +288,17 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
 
         # Unpack and dequantize
         b = dequantize(b, scales, zeros, q_shift, meta_dtype, unpack_mask, elements_per_sample, W_group_mode, zero_is_scalar)
+        #if(elements_per_sample > 1): b = b.to(tl.float32) #hack to enable pipelining with for-loop on triton==3.1.0
 
         if(A_load_order == 3): #Late load 
             a = tl.load(a_ptrs, mask=a_mask, other=0., eviction_policy='evict_last')
         
         #Dot
-        acc = tl.dot(a, b.to(input_dtype), acc=acc, out_dtype=acc_dtype, input_precision="ieee") 
-
+        acc = tl.dot(a, b.to(input_dtype), acc=acc, out_dtype=acc_dtype, input_precision="tf32") 
+        
         #Advance
-        a_ptrs += BLOCK_SIZE_K   * SPLIT_K * stride_ak
-        b_ptrs += BLOCK_SIZE_K_P * SPLIT_K * stride_bk
+        a_ptrs += BLOCK_SIZE_K_U * stride_ak
+        b_ptrs += BLOCK_SIZE_K_P * stride_bk
 
     ##################################################################
     #Channel-wise scaling
@@ -245,22 +307,28 @@ def gemm_splitK_A16fWnO16f_int32packing_kernel(
         acc      = acc.to(meta_dtype) * scales_b[None, :]
 
     if(channel_scale_mode == 2): #activation-only
-        scales_a = tl.load(scales_a_ptr + offs_am, mask=offs_am < M, other=1)
+        scales_a = tl.load(scales_a_ptr + offs_am, mask=offs_am < M, other=1, eviction_policy=meta_evict_policy)
         scales_b = tl.full((BLOCK_SIZE_N,), value=1, dtype=meta_dtype)
         acc      = acc.to(meta_dtype) * (scales_a[:, None] * scales_b[None, :])
 
     if(channel_scale_mode == 3): #weight + activation
         scales_a = tl.load(scales_a_ptr + offs_am, mask=offs_am < M, other=1, eviction_policy=meta_evict_policy)
-        scales_b = tl.load(scales_ptr + offs_bn, mask=offs_bn < N,   other=1, eviction_policy=meta_evict_policy)
+        scales_b = tl.load(scales_ptr   + offs_bn, mask=offs_bn < N, other=1, eviction_policy=meta_evict_policy)
         acc      = acc.to(meta_dtype) * (scales_a[:, None] * scales_b[None, :])
 
+    acc = acc.to(output_dtype)
     ##################################################################
+
     #Output
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     offs_cn = tl.max_contiguous(tl.multiple_of(offs_cn, BLOCK_SIZE_N), BLOCK_SIZE_N)
     c_ptrs  = c_ptr + (offs_cm[:, None] * stride_cm + offs_cn[None, :] * stride_cn)
-    tl.atomic_add(c_ptrs, acc, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N), sem=atomic_mode) #release / relaxed
+
+    if(SPLIT_K > 1):
+        tl.atomic_add(c_ptrs, acc, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N), sem=atomic_mode) #release / relaxed
+    else:
+        tl.store(c_ptrs, acc, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N)) 
 
 
 _costum_op_id = '_' + str(int(random.random()*10000))
@@ -650,17 +718,15 @@ OPT_CONFIGS = {**QWEN_2_5_32B_TP1, **QWEN_2_5_32B_TP2}
 @torch.library.custom_op("gemlite::gemm_splitK_A16fWnO16f_int32packing_forward" + _costum_op_id, mutates_args=())
 def gemm_splitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
                                                 W_nbits: int, group_size: int, unpack_mask: int, elements_per_sample: int,
-                                                input_dtype: int, output_dtype: int, acc_dtype: int, 
-                                                channel_scale_mode: int, W_group_mode: int,
+                                                input_dtype: int, output_dtype: int, acc_dtype: int, meta_dtype:int, 
+                                                channel_scale_mode: int, W_group_mode: int, data_contiguous: bool,
                                                 ) -> Tensor: 
     
     M, K, N = x.shape[0], x.shape[1], W_q.shape[1]
 
     #assert K == W_q.shape[0] * elements_per_sample, "Invalid Input Shapes"
-    #assert group_size >= 128, "Only group_size >= 128 is currently supported"
     output = torch.empty((M, N), device=W_q.device, dtype=DTYPE_TO_TORCH[output_dtype])
-    zeros  = zeros.item() if (zeros.numel()==1) else zeros
-
+    
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), META['SPLIT_K'])
 
     config = OPT_CONFIGS.get((M, N, K, group_size, elements_per_sample), None)
@@ -695,11 +761,12 @@ def gemm_splitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: 
         input_dtype  = DTYPE_TO_TRITON[input_dtype],
         output_dtype = DTYPE_TO_TRITON[output_dtype],
         acc_dtype    = DTYPE_TO_TRITON[acc_dtype],
-        meta_dtype   = tl.float16,
+        meta_dtype   = DTYPE_TO_TRITON[meta_dtype],
         ########################
         channel_scale_mode = channel_scale_mode,
         W_group_mode       = W_group_mode,
-        zero_is_scalar     = isinstance(zeros, int),
+        zero_is_scalar     = zeros.numel() == 1,
+        data_contiguous    = data_contiguous,
     )
 
     return output
@@ -707,8 +774,8 @@ def gemm_splitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: 
 @torch.library.register_fake("gemlite::gemm_splitK_A16fWnO16f_int32packing_forward" + _costum_op_id)
 def gemm_splitK_A16fWnO16f_int32packing_forward_fake(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
                                               W_nbits: int, group_size: int, unpack_mask: int, elements_per_sample: int, 
-                                              input_dtype: int, output_dtype: int, acc_dtype: int, 
-                                              channel_scale_mode: int, W_group_mode: int,
+                                              input_dtype: int, output_dtype: int, acc_dtype: int, meta_dtype:int, 
+                                              channel_scale_mode: int, W_group_mode: int, data_contiguous: bool,
                                               ) -> Tensor:
     
     M, K, N = x.shape[0], x.shape[1], W_q.shape[1]
@@ -718,6 +785,6 @@ def gemm_splitK_A16fWnO16f_int32packing_forward_fake(x: Tensor, W_q: Tensor, sca
 class gemm_splitK_A16fWnO16f:
     kernel = gemm_splitK_A16fWnO16f_int32packing_kernel
     forward = gemm_splitK_A16fWnO16f_int32packing_forward
-    matmul_type = "GEMM_SPLITK"
+    matmul_type = MATMUL_TYPE
 
 __all__ = ["gemm_splitK_A16fWnO16f"]

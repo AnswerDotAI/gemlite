@@ -26,10 +26,7 @@ def dequantize(b, scales, zeros, q_shift, meta_dtype, unpack_mask, elements_per_
         b = (b >> q_shift) & unpack_mask # int32 -> int32
 
     if(W_group_mode == 1): #Shift
-        if(zero_is_scalar):
-            b -= zeros #int32
-        else:
-            b = b.to(meta_dtype) - zeros 
+        b = b.to(meta_dtype) - zeros 
 
     if(W_group_mode == 2):
         b = b.to(meta_dtype) * scales #Symmetric no shift (Grouped)
@@ -51,3 +48,7 @@ def init_to_zero(name):
 
 def is_divisible(dividend, divisor):
     return dividend % divisor == 0
+
+def gpu_has_more_shared_memory(ref_gpus = ['A100', 'H100', 'H200', 'H800']): 
+    gpu_name = torch.cuda.get_device_properties(0).name
+    return True in [g in gpu_name for g in ref_gpus]
