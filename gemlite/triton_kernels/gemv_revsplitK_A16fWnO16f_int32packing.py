@@ -302,26 +302,14 @@ def gemv_revsplitK_A16fWnO16f_int32packing_kernel(
 
 _costum_op_id = '_' + str(int(random.random()*10000))
 
-
-QWEN_2_5_32B_TP1 = {
-    (1, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=2, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
-    (1, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 27648, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 55296, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 27648, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
+OPT_CONFIGS = {
+	(1, 5120, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'A_load_order': 0, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=2, pre_hook=init_to_zero("c_ptr"))],
+	(1, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 16, 'A_load_order': 0, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=1, pre_hook=init_to_zero("c_ptr"))],
+	(1, 5120, 27648, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'A_load_order': 0, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=1, pre_hook=init_to_zero("c_ptr"))],
+	(1, 7168, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64, 'A_load_order': 0, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=1, pre_hook=init_to_zero("c_ptr"))],
+	(1, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'A_load_order': 1, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=1, pre_hook=init_to_zero("c_ptr"))],
+	(1, 55296, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'A_load_order': 1, 'meta_evict_policy': '', 'atomic_mode': 'relaxed', 'dot_prod_mode': 0}, num_warps=2, num_stages=1, pre_hook=init_to_zero("c_ptr"))]
 }
-
-QWEN_2_5_32B_TP2 = {
-    (1, 3584, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 2560, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=2, num_warps=4, pre_hook=init_to_zero("c_ptr"))],
-    (1, 27648, 5120, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 13824, 128, 8) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 27648, 5120, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))],
-    (1, 5120, 13824, 32, 16) : [triton.Config({'BLOCK_SIZE_M': 1, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 16, 'meta_evict_policy': '', 'atomic_mode': 'relaxed'}, num_stages=1, num_warps=2, pre_hook=init_to_zero("c_ptr"))]
-}
-
-OPT_CONFIGS = {**QWEN_2_5_32B_TP1, **QWEN_2_5_32B_TP2}
 
 @torch.library.custom_op("gemlite::gemv_revsplitK_A16fWnO16f_int32packing_forward" + _costum_op_id, mutates_args=())
 def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scales: Tensor, zeros: Tensor, scales_x: Tensor,
@@ -339,9 +327,10 @@ def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scale
 
     config = OPT_CONFIGS.get((M, N, K, group_size, elements_per_sample), None)
     if config is None:
-        autotune_fn = triton.autotune(
+        import triton_dejavu
+        autotune_fn = triton_dejavu.autotune(
             configs = get_autotune_config() if ENABLE_AUTOTUNE else get_default_config(),
-            key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
+            key = KEYS,
             prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
             warmup = 50, 
             rep = 50,
@@ -349,7 +338,7 @@ def gemv_revsplitK_A16fWnO16f_int32packing_forward(x: Tensor, W_q: Tensor, scale
     else:
         autotune_fn = triton.autotune(
             configs = config,
-            key = ['M', 'N', 'K', 'group_size', 'elements_per_sample'],
+            key = KEYS,
             prune_configs_by = {'early_config_prune': kernel_config_pruner} if ENABLE_AUTOTUNE else None,
             warmup = 50, 
             rep = 50,
