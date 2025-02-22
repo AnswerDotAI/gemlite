@@ -498,5 +498,7 @@ def get_default_cache_config():
     return selected_tag
 
 selected_tag = get_default_cache_config()
+root_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs/")
+selected_tag = os.path.join(root_path, "4090_qwen14b.json")
 if(GemLiteLinear.load_config(selected_tag)):
     logger.warning('Loaded ' + selected_tag + ' config.')
